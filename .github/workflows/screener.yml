@@ -36,4 +36,4 @@ jobs:
         RUN_MODE: cloud
         TZ: Asia/Kolkata
       run: |
-        python nse_screener.py --dry-run ${{ github.event.inputs.dry_run == 'true' && '--dry-run' || '' }}
+        python screener.py --dry-run ${{ github.event.inputs.dry_run == 'true' && '--dry-run' || '' }}
