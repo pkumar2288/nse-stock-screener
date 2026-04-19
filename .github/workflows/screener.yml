@@ -1,1 +1,84 @@
+name: NSE Stock Screener
 
+on:
+  schedule:
+    # Run at specified times (UTC)
+    # NSE market times in IST: 9:15, 10:15, 12:15, 15:15, 20:30
+    # Convert to UTC (IST = UTC+5:30)
+    # 9:15 IST = 3:45 UTC
+    # 10:15 IST = 4:45 UTC  
+    # 12:15 IST = 6:45 UTC
+    # 15:15 IST = 9:45 UTC
+    # 20:30 IST = 15:00 UTC
+    
+    - cron: '45 3 * * 1-5'      # 9:15 AM IST (Mon-Fri)
+    - cron: '45 4 * * 1-5'      # 10:15 AM IST (Mon-Fri)
+    - cron: '45 6 * * 1-5'      # 12:15 PM IST (Mon-Fri)
+    - cron: '30 9 * * 1-5'      # 3:00 PM IST (Mon-Fri)
+    - cron: '0 15 * * 1-5'      # 8:30 PM IST (Mon-Fri)
+  
+  # Allow manual trigger from GitHub UI
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry run mode (test with fewer stocks)'
+        type: boolean
+        default: false
+      symbols:
+        description: 'Specific symbols (comma-separated, e.g., RELIANCE,TCS)'
+        type: string
+        default: ''
+
+jobs:
+  run-screener:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+    
+    - name: Cache pip packages
+      uses: actions/cache@v3
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-pip-
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+    
+    - name: Run Stock Screener
+      env:
+        TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+        TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        RUN_MODE: cloud
+        TZ: Asia/Kolkata
+      run: |
+        cd src
+        if [ "${{ github.event.inputs.dry_run }}" == "true" ]; then
+          python screener.py --dry-run
+        elif [ -n "${{ github.event.inputs.symbols }}" ]; then
+          python screener.py --symbols $(echo ${{ github.event.inputs.symbols }} | tr ',' ' ')
+        else
+          python screener.py
+        fi
+    
+    - name: Upload logs on failure
+      if: failure()
+      uses: actions/upload-artifact@v4
+      with:
+        name: screener-logs
+        path: screener.log
+        retention-days: 7
+    
+    - name: Cleanup old logs
+      run: |
+        rm -f screener.log
