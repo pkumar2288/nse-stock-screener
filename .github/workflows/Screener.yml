@@ -1,0 +1,181 @@
+name: NSE Stock Screener
+
+on:
+  # Manual trigger from GitHub UI
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry run mode (test with fewer stocks)'
+        type: boolean
+        default: true
+        required: false
+      symbols:
+        description: 'Specific symbols (comma-separated, e.g., RELIANCE,TCS)'
+        type: string
+        default: ''
+        required: false
+
+  # Scheduled runs (commented out until tested)
+  # schedule:
+  #   - cron: '45 3 * * 1-5'      # 9:15 AM IST
+  #   - cron: '45 4 * * 1-5'      # 10:15 AM IST
+  #   - cron: '45 6 * * 1-5'      # 12:15 PM IST
+  #   - cron: '45 9 * * 1-5'      # 3:15 PM IST
+  #   - cron: '0 15 * * 1-5'      # 8:30 PM IST
+
+jobs:
+  run-screener:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Debug - Show repository structure
+      run: |
+        echo "Current directory: $(pwd)"
+        echo "All files in repository:"
+        ls -la
+        echo ""
+        echo "Looking for Python files:"
+        find . -name "*.py" -type f
+        echo ""
+        echo "Looking for requirements.txt:"
+        find . -name "requirements.txt" -type f
+    
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        if [ -f requirements.txt ]; then
+          pip install -r requirements.txt
+        else
+          echo "No requirements.txt found, installing basic packages..."
+          pip install pandas numpy yfinance openpyxl requests
+        fi
+    
+    - name: Create config directory and settings
+      run: |
+        mkdir -p config
+        cat > config/settings.py << 'EOF'
+import os
+
+RUN_MODE = "cloud"
+SAVE_LOCAL_FILES = False
+BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
+ROUND_PRECI = 2
+LOOKBACK_WEEKS = 15
+THRESHOLD = 0.01
+ODD_SQUARE_TOLERANCE = 0.5
+RSI_PERIOD = 14
+MAX_WORKERS = 5
+BATCH_SIZE = 25
+EOF
+        echo "Config file created"
+        cat config/settings.py
+    
+    - name: Create simple screener script if not exists
+      run: |
+        if [ ! -f "screener.py" ] && [ ! -f "src/screener.py" ] && [ ! -f "nse_screener.py" ]; then
+          echo "Creating screener.py since none exists..."
+          cat > screener.py << 'EOF'
+#!/usr/bin/env python3
+"""Simple test version of NSE screener"""
+
+import os
+import sys
+import pandas as pd
+import yfinance as yf
+from datetime import datetime
+
+print("=" * 60)
+print("NSE STOCK SCREENER - TEST MODE")
+print("=" * 60)
+print(f"Run mode: {os.environ.get('RUN_MODE', 'local')}")
+print(f"Time: {datetime.now()}")
+print()
+
+# Test symbols
+test_symbols = ["RELIANCE", "TCS", "INFY", "HDFCBANK", "ICICIBANK"]
+print(f"Testing {len(test_symbols)} symbols: {', '.join(test_symbols)}")
+
+results = []
+for symbol in test_symbols:
+    try:
+        ticker = yf.Ticker(f"{symbol}.NS")
+        hist = ticker.history(period="5d")
+        if not hist.empty:
+            price = hist['Close'].iloc[-1]
+            results.append({"Symbol": symbol, "Price": round(price, 2)})
+            print(f"✅ {symbol}: ₹{price:.2f}")
+        else:
+            print(f"❌ {symbol}: No data")
+    except Exception as e:
+        print(f"❌ {symbol}: Error - {e}")
+
+print()
+print("=" * 60)
+print(f"Successfully fetched {len(results)}/{len(test_symbols)} stocks")
+print("=" * 60)
+
+# Send to Telegram if configured
+bot_token = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+chat_id = os.environ.get("TELEGRAM_CHAT_ID", "")
+
+if bot_token and chat_id:
+    import requests
+    message = f"✅ NSE Screener Test\nFetched {len(results)} stocks\nTime: {datetime.now()}"
+    try:
+        url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
+        requests.post(url, json={"chat_id": chat_id, "text": message}, timeout=10)
+        print("📱 Telegram notification sent")
+    except Exception as e:
+        print(f"⚠️ Telegram failed: {e}")
+else:
+    print("⚠️ Telegram not configured (set TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID)")
+
+print("✅ Test completed!")
+EOF
+        fi
+    
+    - name: Run screener
+      env:
+        TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+        TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        RUN_MODE: cloud
+        TZ: Asia/Kolkata
+      run: |
+        # Find and run the screener
+        if [ -f "screener.py" ]; then
+          echo "Running screener.py"
+          if [ "${{ github.event.inputs.dry_run }}" == "true" ]; then
+            python screener.py --dry-run
+          else
+            python screener.py
+          fi
+        elif [ -f "src/screener.py" ]; then
+          echo "Running src/screener.py"
+          cd src
+          if [ "${{ github.event.inputs.dry_run }}" == "true" ]; then
+            python screener.py --dry-run
+          else
+            python screener.py
+          fi
+        else
+          echo "No screener.py found, test mode already created one"
+          python screener.py
+        fi
+    
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: screener-output
+        path: |
+          *.xlsx
+          *.log
+        retention-days: 7
