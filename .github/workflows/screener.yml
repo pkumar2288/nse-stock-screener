@@ -1,4 +1,4 @@
-name: NSE Stock Screener
+name: screener
 
 on:
   # Manual trigger from GitHub UI
