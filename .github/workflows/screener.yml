@@ -5,7 +5,7 @@ on:
     - cron: '45 3 * * 1-5'      # 9:15 AM IST
     - cron: '45 4 * * 1-5'      # 10:15 AM IST
     - cron: '45 6 * * 1-5'      # 12:15 PM IST
-    - cron: '45 9 * * 1-5'      # 3:15 PM IST
+    - cron: '30 9 * * 1-5'      # 3:00 PM IST
     - cron: '0 15 * * 1-5'      # 8:30 PM IST
   
   workflow_dispatch:
@@ -23,14 +23,17 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
     
-    - name: Debug - List all files
+    - name: Debug - List all files recursively
       run: |
         echo "Current directory: $(pwd)"
-        echo "All files in repository:"
+        echo "All files in repository (recursive):"
         ls -la
         echo ""
-        echo "Looking for Python files:"
+        echo "Looking for Python files in all folders:"
         find . -name "*.py" -type f
+        echo ""
+        echo "Contents of nse-stock-screener folder:"
+        ls -la nse-stock-screener/ || echo "Folder not found"
     
     - name: Set up Python
       uses: actions/setup-python@v5
@@ -46,20 +49,27 @@ jobs:
       env:
         RUN_MODE: cloud
         TZ: Asia/Kolkata
+        PYTHONPATH: ${{ github.workspace }}
       run: |
-        # Try to find and run the correct Python file
+        # Check different possible locations
         if [ -f "screener.py" ]; then
-          echo "Running screener.py"
+          echo "Running screener.py from root"
           python screener.py --dry-run
-        elif [ -f "nse_screener.py" ]; then
-          echo "Running nse_screener.py"
+        elif [ -f "src/screener.py" ]; then
+          echo "Running screener.py from src folder"
+          cd src
+          python screener.py --dry-run
+        elif [ -f "src/screener.py" ]; then
+          echo "Running nse_screener.py from src folder"
+          cd src
           python nse_screener.py --dry-run
-        elif [ -f "NSE_SCREENERV1.0.py" ]; then
-          echo "Running NSE_SCREENERV1.0.py"
-          python NSE_SCREENERV1.0.py --dry-run
+        elif [ -f "src/NSE_SCREENERV1.py" ]; then
+          echo "Running NSE_SCREENERV1.py from src folder"
+          cd src
+          python screener.py --dry-run
         else
           echo "ERROR: No Python file found!"
-          echo "Available files:"
-          ls -la
+          echo "Searching all directories:"
+          find . -name "*.py" -type f
           exit 1
         fi
