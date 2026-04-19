@@ -1,1 +1,35 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
 
+# Virtual Environment
+venv/
+env/
+ENV/
+.venv
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Project specific
+*.xlsx
+*.log
+screener.log
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Secrets (never commit!)
+config/secrets.py
+.env
+
+# Test files
+test_*.py
+*_test.py
