@@ -1,1 +1,61 @@
 
+## Step 6: Git Commands - Step by Step
+
+Follow these commands in order:
+
+```bash
+# 1. Create project folder on your computer
+mkdir nse-stock-screener
+cd nse-stock-screener
+
+# 2. Create directory structure
+mkdir -p src config .github/workflows
+
+# 3. Copy your modified files into these folders
+# - Copy modified script to src/screener.py
+# - Copy config/settings.py
+# - Copy requirements.txt
+# - Copy .gitignore
+# - Copy README.md
+
+# 4. Initialize git repository
+git init
+
+# 5. Add all files to staging
+git add .
+
+# 6. Commit files
+git commit -m "Initial commit: NSE Stock Screener v2"
+
+# 7. Create main branch (usually already on main)
+git branch -M main
+
+# 8. Create develop branch for testing
+git checkout -b develop
+
+# 9. Create feature branch for changes
+git checkout -b feature/cloud-mode
+
+# 10. Make any changes, then commit
+git add .
+git commit -m "Add cloud mode support"
+
+# 11. Merge back to develop
+git checkout develop
+git merge feature/cloud-mode
+
+# 12. Now push to GitHub (create repo on GitHub first!)
+# First, create a new repository on GitHub website (don't add README there)
+
+# 13. Add remote origin
+git remote add origin https://github.com/YOUR_USERNAME/nse-stock-screener.git
+
+# 14. Push main branch
+git push -u origin main
+
+# 15. Push develop branch
+git push -u origin develop
+
+# 16. Create a tag for version 1.0
+git tag -a v1.0 -m "First stable release"
+git push origin v1.0
