@@ -1,0 +1,122 @@
+name: NSE Stock Screener
+
+on:
+  schedule:
+    # NSE market times in IST converted to UTC (IST = UTC+5:30)
+    - cron: '45 3 * * 1-5'      # 9:15 AM IST (Mon-Fri)
+    - cron: '45 4 * * 1-5'      # 10:15 AM IST (Mon-Fri)
+    - cron: '45 6 * * 1-5'      # 12:15 PM IST (Mon-Fri)
+    - cron: '45 9 * * 1-5'      # 3:15 PM IST (Mon-Fri)
+    - cron: '0 15 * * 1-5'      # 8:30 PM IST (Mon-Fri)
+  
+  # Manual trigger from GitHub UI
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry run mode (test with fewer stocks)'
+        type: boolean
+        default: true
+      symbols:
+        description: 'Specific symbols (comma-separated, e.g., RELIANCE,TCS)'
+        type: string
+        default: ''
+
+jobs:
+  run-screener:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Debug - List repository structure
+      run: |
+        echo "Current directory: $(pwd)"
+        echo "Files in repository:"
+        ls -la
+        echo ""
+        echo "Looking for Python files:"
+        find . -name "*.py" -type f
+    
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+    
+    - name: Cache pip packages
+      uses: actions/cache@v3
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-pip-
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+    
+    - name: Create config directory if needed
+      run: |
+        # Create config directory and settings file if it doesn't exist
+        mkdir -p config
+        if [ ! -f config/settings.py ]; then
+          cat > config/settings.py << 'EOF'
+import os
+
+RUN_MODE = os.environ.get("RUN_MODE", "cloud")
+SAVE_LOCAL_FILES = (RUN_MODE == "local")
+BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
+ROUND_PRECI = 2
+LOOKBACK_WEEKS = 15
+THRESHOLD = 0.01
+ODD_SQUARE_TOLERANCE = 0.5
+RSI_PERIOD = 14
+MAX_WORKERS = 5  # Reduced for GitHub Actions
+BATCH_SIZE = 25  # Reduced for GitHub Actions
+EOF
+        fi
+    
+    - name: Run Stock Screener
+      env:
+        TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+        TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        RUN_MODE: cloud
+        TZ: Asia/Kolkata
+        PYTHONPATH: ${{ github.workspace }}
+      run: |
+        # Debug: Show where we are and what files exist
+        echo "Current directory: $(pwd)"
+        echo "Python path: $PYTHONPATH"
+        echo ""
+        echo "Directory structure:"
+        tree . || ls -R
+        
+        # Run the script (handle both possible locations)
+        if [ -f "src/screener.py" ]; then
+          echo "Found src/screener.py"
+          cd src
+          python screener.py ${{ github.event.inputs.dry_run == 'true' && '--dry-run' || '' }} ${{ github.event.inputs.symbols && format('--symbols {0}', github.event.inputs.symbols) || '' }}
+        elif [ -f "screener.py" ]; then
+          echo "Found screener.py in root"
+          python screener.py ${{ github.event.inputs.dry_run == 'true' && '--dry-run' || '' }} ${{ github.event.inputs.symbols && format('--symbols {0}', github.event.inputs.symbols) || '' }}
+        elif [ -f "nse_screener.py" ]; then
+          echo "Found nse_screener.py"
+          python nse_screener.py ${{ github.event.inputs.dry_run == 'true' && '--dry-run' || '' }} ${{ github.event.inputs.symbols && format('--symbols {0}', github.event.inputs.symbols) || '' }}
+        else
+          echo "ERROR: Cannot find screener Python file!"
+          echo "Files in current directory:"
+          ls -la
+          exit 1
+        fi
+    
+    - name: Upload logs on failure
+      if: failure()
+      uses: actions/upload-artifact@v4
+      with:
+        name: screener-logs
+        path: |
+          screener.log
+          *.xlsx
+        retention-days: 7
