@@ -30,8 +30,7 @@ on:
     # Note: 8:30 PM Monday = Tuesday 15:00 UTC
     - cron: '0 15 * * 1-5'
 
-    - cron: '*/5 * * * *'
-  
+    
   workflow_dispatch:
     inputs:
       dry_run:
