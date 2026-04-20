@@ -14,6 +14,10 @@ on:
         description: 'Dry run mode (test with fewer stocks)'
         type: boolean
         default: true
+      symbols:
+        description: 'Specific symbols (comma-separated)'
+        type: string
+        default: ''
 
 jobs:
   run-screener:
@@ -23,17 +27,14 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
     
-    - name: Debug - List all files recursively
+    - name: Debug - Show structure
       run: |
-        echo "Current directory: $(pwd)"
-        echo "All files in repository (recursive):"
-        ls -la
+        echo "Repository structure:"
+        echo "Root: $(ls -la)"
         echo ""
-        echo "Looking for Python files in all folders:"
-        find . -name "*.py" -type f
+        echo "Src folder: $(ls -la src/ 2>/dev/null || echo 'Not found')"
         echo ""
-        echo "Contents of nse-stock-screener folder:"
-        ls -la nse-stock-screener/ || echo "Folder not found"
+        echo "Config folder: $(ls -la config/ 2>/dev/null || echo 'Not found')"
     
     - name: Set up Python
       uses: actions/setup-python@v5
@@ -49,27 +50,28 @@ jobs:
       env:
         RUN_MODE: cloud
         TZ: Asia/Kolkata
+        TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+        TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         PYTHONPATH: ${{ github.workspace }}
+      working-directory: ./src
       run: |
-        # Check different possible locations
-        if [ -f "screener.py" ]; then
-          echo "Running screener.py from root"
-          python screener.py --dry-run
-        elif [ -f "src/screener.py" ]; then
-          echo "Running screener.py from src folder"
-          cd src
-          python screener.py --dry-run
-        elif [ -f "src/screener.py" ]; then
-          echo "Running nse_screener.py from src folder"
-          cd src
-          python nse_screener.py --dry-run
-        elif [ -f "src/NSE_SCREENERV1.py" ]; then
-          echo "Running NSE_SCREENERV1.py from src folder"
-          cd src
-          python screener.py --dry-run
-        else
-          echo "ERROR: No Python file found!"
-          echo "Searching all directories:"
-          find . -name "*.py" -type f
-          exit 1
+        # Build symbols argument
+        SYMBOLS_ARG=""
+        if [ -n "${{ github.event.inputs.symbols }}" ]; then
+          SYMBOLS_ARG="--symbols $(echo '${{ github.event.inputs.symbols }}' | tr ',' ' ')"
         fi
+        
+        # Run the screener
+        python screener.py ${{ github.event.inputs.dry_run == 'true' && '--dry-run' || '' }} $SYMBOLS_ARG
+    
+    - name: Upload results
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: screener-files
+        path: |
+          src/*.xlsx
+          src/*.log
+          *.xlsx
+          *.log
+        retention-days: 7
