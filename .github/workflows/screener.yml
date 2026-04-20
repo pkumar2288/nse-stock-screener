@@ -6,9 +6,7 @@ on:
     - cron: '45 4 * * 1-5'      # 10:15 AM IST
     - cron: '45 6 * * 1-5'      # 12:15 PM IST
     - cron: '30 9 * * 1-5'      # 3:00 PM IST
-    - cron: '0 15 * * 1-5'      # 8:30 PM  - cron: '*/5 * * * *'
-    - cron: '*/5 * * * *'
-
+    - cron: '0 15 * * 1-5'      # 8:30 PM IST
   
   workflow_dispatch:
     inputs:
@@ -29,14 +27,23 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
     
-    - name: Debug - Show structure
+    - name: Debug - Show complete structure
       run: |
-        echo "Repository structure:"
-        echo "Root: $(ls -la)"
+        echo "=== Repository Structure ==="
+        echo "Root directory:"
+        ls -la
         echo ""
-        echo "Src folder: $(ls -la src/ 2>/dev/null || echo 'Not found')"
+        echo "Looking for Python files in root:"
+        ls -la *.py 2>/dev/null || echo "No Python files in root"
         echo ""
-        echo "Config folder: $(ls -la config/ 2>/dev/null || echo 'Not found')"
+        echo "Src folder (if exists):"
+        ls -la src/ 2>/dev/null || echo "src folder not found"
+        echo ""
+        echo "Config folder (if exists):"
+        ls -la config/ 2>/dev/null || echo "config folder not found"
+        echo ""
+        echo "Searching all .py files:"
+        find . -name "*.py" -type f
     
     - name: Set up Python
       uses: actions/setup-python@v5
@@ -48,14 +55,40 @@ jobs:
         python -m pip install --upgrade pip
         pip install pandas numpy yfinance openpyxl requests
     
-    - name: Run screener
+    - name: Create config directory if needed
+      run: |
+        if [ ! -d "config" ]; then
+          mkdir -p config
+        fi
+        
+        # Create settings.py if it doesn't exist
+        if [ ! -f "config/settings.py" ]; then
+          cat > config/settings.py << 'EOF'
+import os
+
+RUN_MODE = os.environ.get("RUN_MODE", "cloud")
+SAVE_LOCAL_FILES = (RUN_MODE == "local")
+BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
+ROUND_PRECI = 2
+LOOKBACK_WEEKS = 15
+THRESHOLD = 0.01
+ODD_SQUARE_TOLERANCE = 0.5
+RSI_PERIOD = 14
+MAX_WORKERS = 5
+BATCH_SIZE = 25
+EOF
+          echo "Created config/settings.py"
+        fi
+    
+    - name: Run screener (from root)
+      if: success()
       env:
         RUN_MODE: cloud
         TZ: Asia/Kolkata
         TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
         TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         PYTHONPATH: ${{ github.workspace }}
-      working-directory: ./src
       run: |
         # Build symbols argument
         SYMBOLS_ARG=""
@@ -63,8 +96,62 @@ jobs:
           SYMBOLS_ARG="--symbols $(echo '${{ github.event.inputs.symbols }}' | tr ',' ' ')"
         fi
         
-        # Run the screener
-        python screener.py ${{ github.event.inputs.dry_run == 'true' && '--dry-run' || '' }} $SYMBOLS_ARG
+        DRY_RUN_FLAG=""
+        if [ "${{ github.event.inputs.dry_run }}" == "true" ]; then
+          DRY_RUN_FLAG="--dry-run"
+        fi
+        
+        # Try different possible file locations
+        if [ -f "screener.py" ]; then
+          echo "✅ Found screener.py in root"
+          python screener.py $DRY_RUN_FLAG $SYMBOLS_ARG
+        elif [ -f "src/screener.py" ]; then
+          echo "✅ Found src/screener.py"
+          cd src
+          python screener.py $DRY_RUN_FLAG $SYMBOLS_ARG
+        elif [ -f "nse_screener.py" ]; then
+          echo "✅ Found nse_screener.py in root"
+          python nse_screener.py $DRY_RUN_FLAG $SYMBOLS_ARG
+        elif [ -f "NSE_SCREENERV1.0.py" ]; then
+          echo "✅ Found NSE_SCREENERV1.0.py in root"
+          python NSE_SCREENERV1.0.py $DRY_RUN_FLAG $SYMBOLS_ARG
+        elif [ -f "src/nse_screener.py" ]; then
+          echo "✅ Found src/nse_screener.py"
+          cd src
+          python nse_screener.py $DRY_RUN_FLAG $SYMBOLS_ARG
+        elif [ -f "src/NSE_SCREENERV1.0.py" ]; then
+          echo "✅ Found src/NSE_SCREENERV1.0.py"
+          cd src
+          python NSE_SCREENERV1.0.py $DRY_RUN_FLAG $SYMBOLS_ARG
+        else
+          echo "❌ No Python file found!"
+          echo ""
+          echo "Creating a test script to verify everything works..."
+          cat > test_screener.py << 'EOF'
+#!/usr/bin/env python3
+import os
+import sys
+from datetime import datetime
+
+print("=" * 60)
+print("NSE STOCK SCREENER - TEST MODE")
+print("=" * 60)
+print(f"Time: {datetime.now()}")
+print(f"RUN_MODE: {os.environ.get('RUN_MODE', 'not set')}")
+print(f"Python version: {sys.version}")
+print()
+print("✅ Workflow is working correctly!")
+print("⚠️  Your screener.py file was not found.")
+print()
+print("To fix this:")
+print("1. Make sure your Python file is named 'screener.py'")
+print("2. Place it in the root directory of your repository")
+print("3. Or place it in a folder named 'src/'")
+print("=" * 60)
+EOF
+          python test_screener.py
+          exit 1
+        fi
     
     - name: Upload results
       if: always()
@@ -72,8 +159,8 @@ jobs:
       with:
         name: screener-files
         path: |
-          src/*.xlsx
-          src/*.log
+          **/*.xlsx
+          **/*.log
           *.xlsx
           *.log
         retention-days: 7
