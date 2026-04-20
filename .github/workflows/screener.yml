@@ -9,15 +9,6 @@ on:
     - cron: '0 15 * * 1-5'      # 8:30 PM IST
   
   workflow_dispatch:
-    inputs:
-      dry_run:
-        description: 'Dry run mode (test with fewer stocks)'
-        type: boolean
-        default: true
-      symbols:
-        description: 'Specific symbols (comma-separated)'
-        type: string
-        default: ''
 
 jobs:
   run-screener:
