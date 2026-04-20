@@ -1,21 +1,53 @@
+name: NSE Stock Screener
+
 on:
   schedule:
-    - cron: '45 3 * * 1-5'   # 9:15 AM IST
-    - cron: '45 4 * * 1-5'   # 10:15 AM IST
-    - cron: '45 6 * * 1-5'   # 12:15 PM IST
-    - cron: '30 9 * * 1-5'   # 3:00 PM IST
-    - cron: '0 15 * * 1-5'   # 8:30 PM IST
+    - cron: '45 3 * * 1-5'      # 9:15 AM IST
+    - cron: '45 4 * * 1-5'      # 10:15 AM IST
+    - cron: '45 6 * * 1-5'      # 12:15 PM IST
+    - cron: '30 9 * * 1-5'      # 3:00 PM IST
+    - cron: '0 15 * * 1-5'      # 8:30 PM IST
+    - cron: '*/10 * * * *'
+
+
   workflow_dispatch:
     inputs:
       dry_run:
-        description: 'Dry run mode'
+        description: 'Dry run mode (test with fewer stocks)'
         type: boolean
-        default: false        # changed: scheduled runs are production
+        default: false
       symbols:
         description: 'Specific symbols (comma-separated)'
         type: string
         default: ''
 
+jobs:
+  run-screener:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Debug - Show structure
+      run: |
+        echo "Repository structure:"
+        echo "Root: $(ls -la)"
+        echo ""
+        echo "Src folder: $(ls -la src/ 2>/dev/null || echo 'Not found')"
+        echo ""
+        echo "Config folder: $(ls -la config/ 2>/dev/null || echo 'Not found')"
+    
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install pandas numpy yfinance openpyxl requests
+    
     - name: Run screener
       env:
         RUN_MODE: cloud
@@ -23,12 +55,25 @@ on:
         TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
         TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         PYTHONPATH: ${{ github.workspace }}
-        DRY_RUN: ${{ github.event.inputs.dry_run || 'false' }}
       working-directory: ./src
       run: |
-        DRY_RUN_ARG=""
+        # Build symbols argument
         SYMBOLS_ARG=""
-        [ "$DRY_RUN" = "true" ] && DRY_RUN_ARG="--dry-run"
-        [ -n "${{ github.event.inputs.symbols }}" ] && \
+        if [ -n "${{ github.event.inputs.symbols }}" ]; then
           SYMBOLS_ARG="--symbols $(echo '${{ github.event.inputs.symbols }}' | tr ',' ' ')"
-        python screener.py $DRY_RUN_ARG $SYMBOLS_ARG
+        fi
+        
+        # Run the screener
+        python screener.py ${{ github.event.inputs.dry_run == 'true' && '--dry-run' || '' }} $SYMBOLS_ARG
+    
+    - name: Upload results
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: screener-files
+        path: |
+          src/*.xlsx
+          src/*.log
+          *.xlsx
+          *.log
+        retention-days: 7
