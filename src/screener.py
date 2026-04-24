@@ -53,7 +53,7 @@ SAVE_LOCAL_FILES = not IS_CLOUD      # always save 3 files on desktop/local
 
 BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "8736775563:AAH7jG4aHyUUfmtKJUxs-ChSXvOHp3Tm7Wk")
 CHAT_ID   = os.environ.get("TELEGRAM_CHAT_ID", "5732340968, 545110825")
-CHAT_ID_LIST = [cid.strip() for cid in CHAT_IDS.split(",")]
+CHAT_ID_LIST = [cid.strip() for cid in CHAT_ID.split(",")]
 
 # Screening parameters
 ROUND_PRECI          = 2
