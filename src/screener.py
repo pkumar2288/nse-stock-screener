@@ -52,7 +52,8 @@ IS_CLOUD         = RUN_MODE in ("cloud", "github")
 SAVE_LOCAL_FILES = not IS_CLOUD      # always save 3 files on desktop/local
 
 BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "8736775563:AAH7jG4aHyUUfmtKJUxs-ChSXvOHp3Tm7Wk")
-CHAT_ID   = os.environ.get("TELEGRAM_CHAT_ID", "5732340968")
+CHAT_ID   = os.environ.get("TELEGRAM_CHAT_ID", "5732340968, 545110825")
+CHAT_ID_LIST = [cid.strip() for cid in CHAT_IDS.split(",")]
 
 # Screening parameters
 ROUND_PRECI          = 2
@@ -1045,53 +1046,92 @@ def create_excel_files(
 # ============= TELEGRAM — beautified =============
 
 def _tg_post(endpoint: str, **kwargs) -> bool:
-    if not BOT_TOKEN or not CHAT_ID: return False
-    try:
-        resp = requests.post(
-            f"https://api.telegram.org/bot{BOT_TOKEN}/{endpoint}",
-            timeout=60, **kwargs,
-        )
-        if not resp.ok:
-            log.warning("Telegram %s: %s", endpoint, resp.status_code)
-        return resp.ok
-    except Exception:
-        log.exception("Telegram %s raised", endpoint)
+    if not BOT_TOKEN or not CHAT_ID_LIST:
         return False
+    
+    success = True
+    for chat_id in CHAT_ID_LIST:
+        try:
+            # Copy kwargs to avoid modifying original
+            kwargs_copy = kwargs.copy()
+            
+            # Handle both json and data/files differently
+            if 'json' in kwargs_copy:
+                kwargs_copy['json']['chat_id'] = chat_id
+            elif 'data' in kwargs_copy:
+                kwargs_copy['data']['chat_id'] = chat_id
+            else:
+                # If neither, add json with chat_id
+                kwargs_copy['json'] = {'chat_id': chat_id}
+            
+            resp = requests.post(
+                f"https://api.telegram.org/bot{BOT_TOKEN}/{endpoint}",
+                timeout=60, **kwargs_copy
+            )
+            if not resp.ok:
+                log.warning(f"Telegram {endpoint} to {chat_id}: {resp.status_code}")
+                success = False
+        except Exception as e:
+            log.exception(f"Telegram {endpoint} to {chat_id} raised: {e}")
+            success = False
+    
+    return success
 
 
 def send_telegram_message(text: str) -> bool:
-    return _tg_post("sendMessage", json={"chat_id": CHAT_ID, "text": text})
-
+    """Send message to all configured chat IDs"""
+    success = True
+    for chat_id in CHAT_ID_LIST:
+        ok = _tg_post("sendMessage", json={"chat_id": chat_id, "text": text})
+        if not ok:
+            success = False
+    return success
 
 def send_telegram_file(filepath: str, caption: str = "") -> bool:
-    if not os.path.exists(filepath): return False
+    """Send file to all configured chat IDs"""
+    if not os.path.exists(filepath):
+        return False
+    
+    success = True
     with open(filepath, "rb") as fh:
-        return _tg_post(
-            "sendDocument",
-            data={"chat_id": CHAT_ID, "caption": caption[:1024]},
-            files={"document": (
-                os.path.basename(filepath), fh,
-                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            )},
-        )
-
+        for chat_id in CHAT_ID_LIST:
+            ok = _tg_post(
+                "sendDocument",
+                data={"chat_id": chat_id, "caption": caption[:1024]},
+                files={"document": (
+                    os.path.basename(filepath), fh,
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                )},
+            )
+            if not ok:
+                success = False
+            fh.seek(0)  # Reset file pointer for next upload
+    return success
 
 def send_telegram_file_bytes(file_bytes: bytes, filename: str, caption: str = "") -> bool:
-    if not BOT_TOKEN or not CHAT_ID: return False
-    try:
-        resp = requests.post(
-            f"https://api.telegram.org/bot{BOT_TOKEN}/sendDocument",
-            data={"chat_id": CHAT_ID, "caption": caption[:1024]},
-            files={"document": (
-                filename, BytesIO(file_bytes),
-                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            )},
-            timeout=60,
-        )
-        return resp.ok
-    except Exception as e:
-        log.exception("Telegram bytes upload: %s", e)
+    """Send file bytes to all configured chat IDs"""
+    if not BOT_TOKEN or not CHAT_ID_LIST:
         return False
+    
+    success = True
+    for chat_id in CHAT_ID_LIST:
+        try:
+            resp = requests.post(
+                f"https://api.telegram.org/bot{BOT_TOKEN}/sendDocument",
+                data={"chat_id": chat_id, "caption": caption[:1024]},
+                files={"document": (
+                    filename, BytesIO(file_bytes),
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                )},
+                timeout=60,
+            )
+            if not resp.ok:
+                success = False
+        except Exception as e:
+            log.exception(f"Telegram bytes upload to {chat_id}: {e}")
+            success = False
+    
+    return success
 
 
 def _signal_emoji(signal: str) -> str:
